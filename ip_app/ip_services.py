@@ -1,10 +1,14 @@
-from flask import Blueprint, flash, g, redirect, request, url_for, jsonify, make_response
+from flask import Blueprint, flash, g, current_app, request, url_for, jsonify, make_response
 from werkzeug.exceptions import abort
 import requests
 import re
-import json
+import xml.etree.ElementTree as ET
 from validators.ip_address import ipv4
 from datetime import datetime
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+
 
 from ip_app.config import Config
 from ip_app.model import get_db
@@ -12,6 +16,7 @@ from ip_app.security import require_api_key
 
 
 bp = Blueprint('ip_security', __name__, url_prefix='/ip_security')
+limiter = Limiter(key_func=get_remote_address, app=current_app)
 
 
 def build_geo_ip_response(data:dict):
@@ -88,24 +93,18 @@ def report_ip():
     API for reporting an IP Address for malicious behaviour, uploading it to the DB. If the IP Address was already uploaded
     before, the same API can be used to update the reasons why the IP was reported
 
-    Args:
-        ip (str): The IPv4 address to look up.
-
     Returns:
-        A JSON-encoded dictionary containing the location data for the IP address.
-        If the IP address is invalid a 400 Bad Request error is returned.
-        If the external API fails, a 500 error is returned with a flash message describing the error.
+        201 status code if the data was uploaded succesfully
+        400 error code if there are any errors with the input format
+        403 error if no api-key was provided or the api-key was invalid 
     """
     if request.method == 'POST':
         try:
             data = request.json
-            #data = json.loads(data)
             ip_address = data["ipAddress"]
             abuse_categories = data["abuseCategories"]
-            #ip_address = request.form['ipAddress']
-            #abuse_categories = request.form['abuseCategories']
-            # api_key = request.headers.get("api_key")
-            api_key = 'api-key1'
+            api_key = request.headers.get("api_key")
+
 
             if type(abuse_categories) != list:
                  raise TypeError(f"Error, abuse categories must be a list, but got {type(abuse_categories)}")
@@ -138,6 +137,97 @@ def report_ip():
             db.commit()
             
             return {"ipAddress": ip_address, "abuseCategories": abuse_categories}, 201
+
+
+@bp.route('/blocked_ips/<string:return_format>')
+@limiter.limit('10 per second', key_func=lambda: "global")          # limits the number of calls to 10/second for all users
+def get_blocked_ips(return_format):
+    """
+    API that fetches the blocked IPs uploaded to the DB, optionally only the abuse categories listed.
+
+    Args:
+        return_format (str): Either json or xml.
+
+    Returns:
+        A JSON or XML encoded dictionary containing the blocked IP Addresses and their reasons.
+        For the JSON, the return is list filled with dictionaries with 3 keys:
+            -ip_address: the string ip address
+            -time_uploaed: the last time it was updated, as an string datetime format
+            -reasons_blocked: a list containing the reasons 1-3 for why the ip was blocked
+
+        For the XML file, the same format and names are used
+    """
+
+    try:
+        if return_format not in ["json", "xml"]:
+            raise ValueError(f"Return format should be xml or json, but got {return_format}")
         
+        db = get_db()
+
+        # if the cateogires are passed as args, we read them and filter our query based on that
+        abuse_categories=request.args.get("abuse_categories", type=str)
+        if abuse_categories is not None:
+            abuse_categories = [int(s) for s in abuse_categories]
+            if not set(abuse_categories).issubset(set([1, 2, 3])):
+                 raise ValueError(f"Error, only 3 types of abuse categories supported, but got {abuse_categories}")
+            
+            port_scan = 1 in abuse_categories
+            hacking = 2 in abuse_categories
+            sql_injection = 3 in abuse_categories
+            results= db.execute('SELECT p.ip_address, p.uploaded, b.PortScan, b.Hacking, b.SqlInjection '
+                                 'FROM blocked_ips p JOIN blocked_reasons b ON p.id=b.reason_id '
+                                 'WHERE b.PortScan=? OR b.Hacking=? OR b.SqlInjection=?',
+                                (port_scan, hacking, sql_injection)).fetchall()
+
+        else:
+            # if not, we run a query on all the parameters
+            results = db.execute('SELECT p.ip_address, p.uploaded, b.PortScan, b.Hacking, b.SqlInjection '
+                                'FROM blocked_ips p JOIN blocked_reasons b ON p.id=b.reason_id').fetchall()
+
+       
+
+    except (ValueError, requests.exceptions.RequestException) as e:
+        flash(str(e))
+        abort(500)
+
+    else:
+        # create the data in json format
+        if return_format == 'json':
+            response = []
+            for query_result in results:
+                reasons_blocked = []
+                # build the list depending on the different non-excluyent reasons
+                if query_result[2]:
+                    reasons_blocked.append(1)
+                if query_result[3]:
+                    reasons_blocked.append(2)
+                if query_result[4]:
+                    reasons_blocked.append(3)
+                response.append({
+                    'ip_address': query_result[0],
+                    'time_uploaed': query_result[1],
+                    'reasons_blocked': reasons_blocked
+                })
+
+            return jsonify(response)
+        
+        # create the data in XML format
+        else:
+            root = ET.Element('response')
+            for query_result in results:
+                result = ET.SubElement(root, 'result')
+                ip_address = ET.SubElement(result, 'ip_address')
+                ip_address.text = str(query_result[0])
+                time_uploaded = ET.SubElement(result, 'time_uploaded')
+                time_uploaded.text = str(query_result[1])
+                reasons_blocked = ET.SubElement(result, 'reasons_blocked')
+                if query_result[2]:
+                    reason1 = ET.SubElement(reasons_blocked, 'reason1')
+                if query_result[3]:
+                    reason2 = ET.SubElement(reasons_blocked, 'reason2')
+                if query_result[4]:
+                    reason3 = ET.SubElement(reasons_blocked, 'reason3')
+
+            return current_app.response_class(ET.tostring(root).decode('utf-8'), mimetype='application/xml')
 
 

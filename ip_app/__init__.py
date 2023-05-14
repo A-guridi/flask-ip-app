@@ -35,16 +35,12 @@ def create_app(test_config=None):
         return 'Hi, welcome to the IP services app'
     
     # initialize the db object
-    from . import model
+    from ip_app import model
     model.init_app(app)
 
     # add the blueprint with ip APIs
-    from . import ip_services
+    from ip_app import ip_services
     app.register_blueprint(ip_services.bp)
     
-    #blog service
-    #from . import blog
-    #app.register_blueprint(blog.bp)
-    #app.add_url_rule('/', endpoint='index')
 
     return app

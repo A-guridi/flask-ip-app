@@ -8,3 +8,12 @@ The app's main functionality is to provide some security services for IP address
 3. Get banned IPs API GET(/ip_security/blocked_ips/) This API returns the blocked IPs uploaded with the second API. For this API, no key is needed. 
 
 The project is built on top of Flask to keep the app simple to use and easy to integrate in larger code bases. All the 3 APIs are under the same Flask blueprint (ip_security) for the same reason. Further functionalities and test to be added later.
+
+To run the project on dev mode, use
+1. conda create -n flask_app python=3.9
+2. pip install -r requirments.txt 
+3. flask --app ip_app init_db
+4. flask --app ip_app run
+This will create a DB and run the project on development mode
+
+To deploy it as a docker, simply build and run the Dockerfile to deploy it. The deployment uses waitress as a deployment manager and install just the basic packages needed

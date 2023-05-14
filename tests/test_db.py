@@ -5,6 +5,7 @@ from ip_app.model import get_db
 
 
 def test_get_close_db(app):
+    # tests wether the db is really closed by running a simple query and fetching the error
     with app.app_context():
         db = get_db()
         assert db is get_db()
@@ -16,6 +17,7 @@ def test_get_close_db(app):
 
 
 def test_init_db_command(runner, monkeypatch):
+    # tests that the db is intialiazed with some monkey patching
     class Recorder(object):
         called = False
 
