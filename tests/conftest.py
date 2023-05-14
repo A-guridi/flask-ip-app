@@ -1,14 +1,19 @@
 import os
 import tempfile
 import pytest
-from ip_app.app import create_app
+from ip_app import create_app
 from ip_app.model import get_db, init_db
 
-with open(os.path.join(os.path.dirname(__file__), 'data.sql'), 'rb') as f:
+
+with open(os.path.join(os.path.dirname(__file__), 'fill_values.sql'), 'rb') as f:
     _data_sql = f.read().decode('utf8')
 
 @pytest.fixture
 def app():
+    """
+    Default fixture to create a testing app. This app uses the tempfile to create a temporary db that is deleted after all the tests pass.
+    The function initializes the db and executes an SQL script to fill it with some values for users and blocked ips
+    """
     db_fd, db_path = tempfile.mkstemp()
 
     app = create_app({
@@ -22,6 +27,7 @@ def app():
 
     yield app
 
+    # after testing close the db connection
     os.close(db_fd)
     os.unlink(db_path)
 
@@ -34,22 +40,3 @@ def client(app):
 @pytest.fixture
 def runner(app):
     return app.test_cli_runner()
-
-
-class AuthActions(object):
-    def __init__(self, client):
-        self._client = client
-
-    def login(self, username='test', password='test'):
-        return self._client.post(
-            '/auth/login',
-            data={'username': username, 'password': password}
-        )
-
-    def logout(self):
-        return self._client.get('/auth/logout')
-
-
-@pytest.fixture
-def auth(client):
-    return AuthActions(client)

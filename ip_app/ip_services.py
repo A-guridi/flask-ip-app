@@ -10,6 +10,7 @@ from ip_app.config import Config
 from ip_app.model import get_db
 from ip_app.security import require_api_key
 
+
 bp = Blueprint('ip_security', __name__)
 
 
@@ -45,8 +46,8 @@ def build_geo_ip_response(data:dict):
     return formatted_data
 
 
-@bp.route('/location/<string:ip>')
-def get_location(ip):
+@bp.route('/location/<string:ip_address>')
+def get_location(ip_address):
     """
     API that fetches the location data for a given IP address.
 
@@ -59,11 +60,11 @@ def get_location(ip):
         If the external API fails, a 500 error is returned with a flash message describing the error.
     """
 
-    if not ipv4(ip):            # first, validate IP address using the validators library
-        flash(f"Error, {ip} is not a valid ip address")
+    if not ipv4(ip_address):            # first, validate IP address using the validators library
+        flash(f"Error, {ip_address} is not a valid ip address")
         abort(400)
 
-    ip_url = Config.IP_LOCATION_API.format(ip_add=ip)       # add it to the default string for the request API
+    ip_url = Config.IP_LOCATION_API.format(ip_add=ip_address)       # add it to the default string for the request API
 
     try:
         response= requests.get(ip_url, timeout=7200)        # set a max timeout in case the external API fails
@@ -76,45 +77,49 @@ def get_location(ip):
     else:
         # if no errors occur during the request, transform the data and output it
         formatted_data = build_geo_ip_response(response.json())
-        return jsonify(formatted_data)
+        return formatted_data
 
 
 
-@bp.route('/report_id', methods=['POST', 'GET'])
-@require_api_key
+@bp.route('/report_id', methods=['POST'])
+@require_api_key                            # decorator to require a valid registered API-key to call the method
 def report_ip():
-    if request.method == 'POST':
-        try:
-            ip_address = request.form['ipAddress']
-            abuse_categories = request.form['abuseCategories']
-            api_key = request.headers.get("api_key")
+    try:
+        ip_address = request.form['ipAddress']
+        abuse_categories = request.form['abuseCategories']
+        api_key = request.headers.get("api_key")
 
-        except KeyError as e:
-            flash(str(e))
-            abort(400)
+        if type(abuse_categories) != list:
+            raise TypeError(f"Abuse categories must be a list, but got {type(abuse_categories)}")
+        elif not set(abuse_categories).issubset(set(1, 2, 3)):
+            raise ValueError(f"Error, only 3 types of abuse categories supported, but got {abuse_categories}")
+        elif not ipv4(ip_address):
+            raise ValueError(f"Error, {ip_address} is not a valid ip address")
 
-        else:
-            # first define the reasons
-            port_scan = 1 in abuse_categories
-            hacking = 2 in abuse_categories
-            sql_injection = 3 in abuse_categories
-            # acces the database
-            db = get_db()
-            # first we insert the new registered IP in the database. In case the ip has already been added we only update the time
-            db.execute('INSERT INTO blocked_ips(ip_address, author_id, )'
-                        ' VALUES (?, SELECT user_id FROM users WHERE apikey=?, )'
-                        'ON CONFLICT(ip_address) DO UPDATE SET created=?',
-                        (ip_address, generate_password_hash(api_key), datetime.now()))
-            # then we insert the reasons why its blocked in another db. In case it was already added, we just update the reasons why it was blocked
-            db.execute('INSERT INTO blocked_reasons(reason_id, PortScan, Hacking, SqlInjection)'
-                    'VALUES (SELECT id from blocked_ips WHERE ip_address=?, ?, ?, ?)'
-                    'ON CONFLICT(reason_id) DO UPDATE SET PortScan=?, Hacking=?, SqlInjection=? ',
-                    (ip_address, port_scan, hacking, sql_injection, port_scan, hacking, sql_injection))
-            db.commit()
-            data = {"ipAddress": ip_address,
-                    "abuseCategories": abuse_categories}
-            resp = make_response(jsonify(data), 201)
-            return resp
+    except (KeyError, TypeError, ValueError) as e:
+        flash(str(e))
+        abort(400)
+
+    else:
+        # first define the reasons as bools, multiple options are allowed
+        port_scan = 1 in abuse_categories
+        hacking = 2 in abuse_categories
+        sql_injection = 3 in abuse_categories
+        # acces the database
+        db = get_db()
+        # first we insert the new registered IP in the database. In case the ip has already been added we only update the time
+        db.execute('INSERT INTO blocked_ips(ip_address, author_id, )'
+                    ' VALUES (?, SELECT user_id FROM users WHERE apikey=?)'
+                    'ON CONFLICT(ip_address) DO UPDATE SET uploaded=?',
+                    (ip_address, generate_password_hash(api_key), datetime.now()))
+        # then we insert the reasons why its blocked in another db. In case it was already added, we just update the reasons why it was blocked
+        db.execute('INSERT INTO blocked_reasons(reason_id, PortScan, Hacking, SqlInjection)'
+                'VALUES (SELECT id from blocked_ips WHERE ip_address=?, ?, ?, ?)'
+                'ON CONFLICT(reason_id) DO UPDATE SET PortScan=?, Hacking=?, SqlInjection=? ',
+                (ip_address, port_scan, hacking, sql_injection, port_scan, hacking, sql_injection))
+        db.commit()
+        
+        return {"ipAddress": ip_address, "abuseCategories": abuse_categories}, 201
         
 
 
