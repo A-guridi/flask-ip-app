@@ -22,6 +22,7 @@ To deploy it as a docker, simply build and run the Dockerfile to deploy it. The 
 
 ## Config classes
 Config classes in the config.py file must be written in the following format:
+```python
 class Config(object):
     DEBUG = True
     DEVELOPMENT = True
@@ -35,3 +36,4 @@ class ProductionConfig(Config):
     DEVELOPMENT = False
     DEBUG = False
     # DB_HOST = 'my.production.database'
+```
