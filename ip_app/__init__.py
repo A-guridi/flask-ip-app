@@ -1,5 +1,7 @@
 import os
 from flask import Flask
+from ip_app import model
+from ip_app import ip_services
 
 
 def create_app(test_config=None):
@@ -35,11 +37,9 @@ def create_app(test_config=None):
         return 'Hi, welcome to the IP services app'
     
     # initialize the db object
-    from ip_app import model
     model.init_app(app)
 
     # add the blueprint with ip APIs
-    from ip_app import ip_services
     app.register_blueprint(ip_services.bp)
     
 

@@ -1,12 +1,15 @@
-from flask import Blueprint, flash, g, current_app, request, url_for, jsonify, make_response
+from flask import Blueprint, flash, g, current_app, request, jsonify
 from werkzeug.exceptions import abort
 import requests
 import re
+from typing import List, Dict
+from http import HTTPStatus as HS
 import xml.etree.ElementTree as ET
 from validators.ip_address import ipv4
 from datetime import datetime
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from flask_limiter.util import get_remote_address#
+from sqlite3.
 
 
 
@@ -15,11 +18,11 @@ from ip_app.model import get_db
 from ip_app.security import require_api_key
 
 
-bp = Blueprint('ip_security', __name__, url_prefix='/ip_security')
+bp = Blueprint('ip_security', __name__, url_prefix='/v1/ip_security')
 limiter = Limiter(key_func=get_remote_address, app=current_app)
 
 
-def build_geo_ip_response(data:dict):
+def build_geo_ip_response(data:dict) -> Dict:
     """
     Formats the data from the request response into the new expected format. It uses a global id variable to count up the number of requests made to this API
     """
@@ -28,7 +31,7 @@ def build_geo_ip_response(data:dict):
     else:
         g.geo_id += 1
 
-    formatted_data={
+    return {
         'id':g.geo_id,
         'ipAddress': data["query"],
         'location':{
@@ -47,8 +50,6 @@ def build_geo_ip_response(data:dict):
             },
         'isp': data["isp"]
         }
-    
-    return formatted_data
 
 
 @bp.route('/location/<string:ip_address>')
@@ -65,9 +66,9 @@ def get_location(ip_address):
         If the external API fails, a 500 error is returned with a flash message describing the error.
     """
 
-    if not ipv4(ip_address):            # first, validate IP address using the validators library
+    if not ipv4(ip_address):                    # first, validate IP address using the validators library
         flash(f"Error, {ip_address} is not a valid ip address")
-        abort(400)
+        abort(HS.UNPROCESSABLE_ENTITY)          # 422
 
     ip_url = Config.IP_LOCATION_API.format(ip_add=ip_address)       # add it to the default string for the request API
 
@@ -81,8 +82,7 @@ def get_location(ip_address):
 
     else:
         # if no errors occur during the request, transform the data and output it
-        formatted_data = build_geo_ip_response(response.json())
-        return formatted_data
+        return build_geo_ip_response(response.json())
 
 
 
@@ -98,45 +98,51 @@ def report_ip():
         400 error code if there are any errors with the input format
         403 error if no api-key was provided or the api-key was invalid 
     """
-    if request.method == 'POST':
-        try:
-            data = request.json
-            ip_address = data["ipAddress"]
-            abuse_categories = data["abuseCategories"]
-            api_key = request.headers.get("api_key")
 
+    try:
+        # first we fetch the data
+        data = request.json
+        ip_address = data["ipAddress"]
+        abuse_categories = data["abuseCategories"]
+        api_key = request.headers.get("api_key")
 
-            if type(abuse_categories) != list:
-                 raise TypeError(f"Error, abuse categories must be a list, but got {type(abuse_categories)}")
-            elif not set(abuse_categories).issubset(set([1, 2, 3])):
-                 raise ValueError(f"Error, only 3 types of abuse categories supported, but got {abuse_categories}")
-            elif not ipv4(ip_address):
-                 raise ValueError(f"Error, {ip_address} is not a valid ip address")
+        # assert the types
+        if type(abuse_categories) != list:
+                raise TypeError(f"Error, abuse categories must be a list, but got {type(abuse_categories)}")
+        elif not set(abuse_categories).issubset(set([1, 2, 3])):
+                raise ValueError(f"Error, only 3 types of abuse categories supported, but got {abuse_categories}")
+        elif not ipv4(ip_address):
+                raise ValueError(f"Error, {ip_address} is not a valid ip address")
+        
+        # now insert it into the db
+        port_scan = 1 in abuse_categories
+        hacking = 2 in abuse_categories
+        sql_injection = 3 in abuse_categories
+        # acces the database
+        db = get_db()
+        # first we insert the new registered IP in the database. In case the ip has already been added we only update the time
+        db.execute( 'INSERT INTO blocked_ips(ip_address, author_id)'
+                    ' VALUES (?, (SELECT user_id FROM users WHERE apikey=?))'
+                    ' ON CONFLICT(ip_address) DO UPDATE SET uploaded=?',
+                    (ip_address, api_key, datetime.now()))
+        # then we insert the reasons why its blocked in another db. In case it was already added, we just update the reasons why it was blocked
+        db.execute( 'INSERT INTO blocked_reasons(reason_id, PortScan, Hacking, SqlInjection)'
+                    ' SELECT id, ?, ?, ? FROM blocked_ips WHERE ip_address=?'
+                    ' ON CONFLICT(reason_id) DO UPDATE SET PortScan=?, Hacking=?, SqlInjection=?',
+                    (port_scan, hacking, sql_injection, ip_address, port_scan, hacking, sql_injection))
+        db.commit()
 
-        except (KeyError, TypeError, ValueError) as e:
-            flash(str(e))
-            abort(400)
+    except (KeyError, TypeError, ValueError) as e:
+        flash(str(e))
+        abort(HS.BAD_REQUEST)
 
-        else:
-            # first define the reasons as bools, multiple options are allowed
-            port_scan = 1 in abuse_categories
-            hacking = 2 in abuse_categories
-            sql_injection = 3 in abuse_categories
-            # acces the database
-            db = get_db()
-            # first we insert the new registered IP in the database. In case the ip has already been added we only update the time
-            db.execute( 'INSERT INTO blocked_ips(ip_address, author_id)'
-                        ' VALUES (?, (SELECT user_id FROM users WHERE apikey=?))'
-                        ' ON CONFLICT(ip_address) DO UPDATE SET uploaded=?',
-                        (ip_address, api_key, datetime.now()))
-            # then we insert the reasons why its blocked in another db. In case it was already added, we just update the reasons why it was blocked
-            db.execute( 'INSERT INTO blocked_reasons(reason_id, PortScan, Hacking, SqlInjection)'
-                        ' SELECT id, ?, ?, ? FROM blocked_ips WHERE ip_address=?'
-                        ' ON CONFLICT(reason_id) DO UPDATE SET PortScan=?, Hacking=?, SqlInjection=?',
-                        (port_scan, hacking, sql_injection, ip_address, port_scan, hacking, sql_injection))
-            db.commit()
-            
-            return {"ipAddress": ip_address, "abuseCategories": abuse_categories}, 201
+    except E
+
+    else:
+        # first define the reasons as bools, multiple options are allowed
+       
+        
+        return {"ipAddress": ip_address, "abuseCategories": abuse_categories}, 201
 
 
 @bp.route('/blocked_ips/<string:return_format>')
@@ -184,50 +190,49 @@ def get_blocked_ips(return_format):
             results = db.execute('SELECT p.ip_address, p.uploaded, b.PortScan, b.Hacking, b.SqlInjection '
                                 'FROM blocked_ips p JOIN blocked_reasons b ON p.id=b.reason_id').fetchall()
 
-       
-
     except (ValueError, requests.exceptions.RequestException) as e:
         flash(str(e))
-        abort(500)
+        abort(HS.BAD_REQUEST)
 
+    
+    # create the data in json format
+    if return_format == 'json':
+        response = []
+        for query_result in results:
+            reasons_blocked = []
+            # build the list depending on the different non-excluyent reasons
+            if query_result[2]:
+                reasons_blocked.append(1)
+            if query_result[3]:
+                reasons_blocked.append(2)
+            if query_result[4]:
+                reasons_blocked.append(3)
+
+            response.append({
+                'ip_address': query_result[0],
+                'time_uploaed': query_result[1],
+                'reasons_blocked': reasons_blocked
+            })
+
+        return jsonify(response)
+    
+    # create the data in XML format
     else:
-        # create the data in json format
-        if return_format == 'json':
-            response = []
-            for query_result in results:
-                reasons_blocked = []
-                # build the list depending on the different non-excluyent reasons
-                if query_result[2]:
-                    reasons_blocked.append(1)
-                if query_result[3]:
-                    reasons_blocked.append(2)
-                if query_result[4]:
-                    reasons_blocked.append(3)
-                response.append({
-                    'ip_address': query_result[0],
-                    'time_uploaed': query_result[1],
-                    'reasons_blocked': reasons_blocked
-                })
+        root = ET.Element('response')
+        for query_result in results:
+            result = ET.SubElement(root, 'result')
+            ip_address = ET.SubElement(result, 'ip_address')
+            ip_address.text = str(query_result[0])
+            time_uploaded = ET.SubElement(result, 'time_uploaded')
+            time_uploaded.text = str(query_result[1])
+            reasons_blocked = ET.SubElement(result, 'reasons_blocked')
+            if query_result[2]:
+                ET.SubElement(reasons_blocked, 'reason1')
+            if query_result[3]:
+                ET.SubElement(reasons_blocked, 'reason2')
+            if query_result[4]:
+                ET.SubElement(reasons_blocked, 'reason3')
 
-            return jsonify(response)
-        
-        # create the data in XML format
-        else:
-            root = ET.Element('response')
-            for query_result in results:
-                result = ET.SubElement(root, 'result')
-                ip_address = ET.SubElement(result, 'ip_address')
-                ip_address.text = str(query_result[0])
-                time_uploaded = ET.SubElement(result, 'time_uploaded')
-                time_uploaded.text = str(query_result[1])
-                reasons_blocked = ET.SubElement(result, 'reasons_blocked')
-                if query_result[2]:
-                    reason1 = ET.SubElement(reasons_blocked, 'reason1')
-                if query_result[3]:
-                    reason2 = ET.SubElement(reasons_blocked, 'reason2')
-                if query_result[4]:
-                    reason3 = ET.SubElement(reasons_blocked, 'reason3')
-
-            return current_app.response_class(ET.tostring(root).decode('utf-8'), mimetype='application/xml')
+        return current_app.response_class(ET.tostring(root).decode('utf-8'), mimetype='application/xml')
 
 

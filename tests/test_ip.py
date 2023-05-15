@@ -1,6 +1,7 @@
 import pytest
 from ip_app.model import get_db
 import xml.etree.ElementTree as ET
+from http import HTTPStatus as HS
 
 
 @pytest.mark.parametrize(('ipAddress', 'abuseCategories', 'api_key'), (
@@ -12,11 +13,11 @@ import xml.etree.ElementTree as ET
 def test_report_ip(client, app, ipAddress:str, abuseCategories:list, api_key:str):
     # test to upload some IPs to the system and update 1 after, checking after each upload that they are saved in the DB
     response = client.post(
-        '/ip_security/report_ip',
+        '/v1/ip_security/report_ip',
         headers={'Content-Type': 'application/json', 'api_key': api_key },
         json={'ipAddress': ipAddress, 'abuseCategories': list(abuseCategories)}
     )
-    assert 201 == response.status_code
+    assert HS.CREATED == response.status_code
     with app.app_context():
         db = get_db()
         count = db.execute('SELECT COUNT(id) FROM blocked_ips').fetchone()[0]
@@ -33,7 +34,7 @@ def test_report_ip(client, app, ipAddress:str, abuseCategories:list, api_key:str
 def test_report_ip_wrong(client, ipAddress:str, abuseCategories:list, api_key:str, status:int):
     # test to upload 4 different wrong examples and catch the errors returned by the system
     response = client.post(
-        '/ip_security/report_ip',
+        '/v1/ip_security/report_ip',
         headers={'Content-Type': 'application/json', 'api_key': api_key},
         json={'ipAddress': ipAddress, 'abuseCategories': list(abuseCategories)}
     )
@@ -48,19 +49,19 @@ def test_get_ip(client):
             ('10.42.3.125', [1, 2], 'api-key1')]
     for r in data:
         response=client.post(
-            '/ip_security/report_ip',
+            '/v1/ip_security/report_ip',
             headers={'Content-Type': 'application/json', 'api_key': r[2] },
             json={'ipAddress': r[0], 'abuseCategories': list(r[1])}
             )
-        assert 201 == response.status_code
+        assert HS.CREATED == response.status_code
 
-    response = client.get('/ip_security/blocked_ips/json')
+    response = client.get('/v1/ip_security/blocked_ips/json')
     assert len(response.json)==3
 
-    response = client.get('/ip_security/blocked_ips/xml')
+    response = client.get('/v1/ip_security/blocked_ips/xml')
     root = ET.fromstring(response.data)
     assert len(root.findall('result'))==3
 
-    response = client.get('/ip_security/blocked_ips/json', query_string={'abuse_categories': '3'})
+    response = client.get('/v1/ip_security/blocked_ips/json', query_string={'abuse_categories': '3'})
     assert len(response.json)==1
 
