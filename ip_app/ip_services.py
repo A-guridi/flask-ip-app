@@ -80,8 +80,8 @@ def insert_placeholder_geo_data(db, ip_address: str) -> int:
     the rest empty. In the future it could be updated to actually fetch the data from a remote source  and insert
     it into the db
     Args:
-        db: Database object connected to the current database
-        ip_address(str): IPv4 address to be inserted
+        - db: Database object connected to the current database
+        - ip_address(str): IPv4 address to be inserted
     Returns:
         the ID of the inserted value
     """
@@ -98,9 +98,8 @@ def get_ip_location(ip_address: str):
     API that fetches the location data for a given IP address.
 
     Args:
-        ip_address: The IPv4 address to look up.
-        as query parameter, it accepts the boolean external=true. If true, it will fetch the data from an external
-        provider
+        - ip_address: The IPv4 address to look up. As query parameter, it accepts the boolean external=true.
+                        If true, it will fetch the data from an external provider
 
     Returns:
         A JSON-encoded dictionary containing the location data for the IP address.
@@ -108,14 +107,17 @@ def get_ip_location(ip_address: str):
         If the external API fails, a 500 error is returned with a flash message describing the error.
     """
 
-    if not ipv4(ip_address):  # first, validate IP address using the validators library
-        flash(f"Error, {ip_address} is not a valid ip address")
-        abort(HS.UNPROCESSABLE_ENTITY)  # 422
+
 
     args = request.args
     external = args.get('external', default=False, type=bool)
     # get the data from an external API provider
     if external:
+
+        if not ipv4(ip_address):  # first, validate IP address using the validators library
+            flash(f"Error, {ip_address} is not a valid ip address")
+            raise ValueError(f"Error, {ip_address} is not a valid ip address")
+
         ip_url = Config.IP_LOCATION_API.format(ip_add=ip_address)  # add it to the default string for the request API
 
         try:
@@ -132,15 +134,21 @@ def get_ip_location(ip_address: str):
 
     # get the data from an internally managed DB
     else:
-        db = get_db()
-        data = db.execute('SELECT * FROM ip_geo_data WHERE ipAddress = ?',
-                          (ip_address,)).fetchall()
+        try:
+            if not ipv4(ip_address):  # first, validate IP address using the validators library
+                flash(f"Error, {ip_address} is not a valid ip address")
+                raise ValueError(f"Error, {ip_address} is not a valid ip address")
+            db = get_db()
+            data = db.execute('SELECT * FROM ip_geo_data WHERE ipAddress = ?',
+                              (ip_address,)).fetchall()
 
-        # get the key names
-        # columns = db.execute('PRAGMA table_info(ip_geo_data) ').fetchall()
-        res_data = build_geo_ip_response(query=data[0])
-
-        return res_data
+        except SqlError as e:
+            flash(f"SQL error occurred {e}")
+            abort(HS.INTERNAL_SERVER_ERROR)
+            
+        else:
+            res_data = build_geo_ip_response(query=data[0])
+            return res_data
 
 
 @bp.route('/report_ip', methods=['POST'])
@@ -151,9 +159,9 @@ def report_ip():
     before, the same API can be used to update the reasons why the IP was reported
     Args:
         A JSON encoded dict is expected with the following keys:
-            ipAddress (str): the IPv4 address to be reported
-            abuseCategories (List): A list of possible categories the IP is to be reported for
-            api_key (str): A valid API key included in the headers is required to post to this method
+            - ipAddress (str): the IPv4 address to be reported
+            - abuseCategories (List): A list of possible categories the IP is to be reported for
+            - api_key (str): A valid API key included in the headers is required to post to this method
 
 
     Returns:
@@ -216,9 +224,9 @@ def report_ip():
         abort(HS.INTERNAL_SERVER_ERROR)
 
 
-@bp.route('/blocked_ips/<string:return_format>')
+@bp.route('/reported_ips/<string:return_format>')
 @limiter.limit('10 per second', key_func=lambda: "global")  # limits the number of calls to 10/second for all users
-def get_blocked_ips(return_format):
+def get_reported_ips(return_format:str):
     """
     API that fetches the blocked IPs uploaded to the DB, optionally only the abuse categories listed.
 

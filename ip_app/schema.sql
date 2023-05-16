@@ -10,6 +10,7 @@ CREATE TABLE users (
 );
 
 -- geo_location info of the ips
+-- ip_address is not unique here since there might be more than one
 CREATE TABLE ip_geo_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ipAddress TEXT,

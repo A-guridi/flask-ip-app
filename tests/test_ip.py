@@ -69,12 +69,12 @@ def test_get_blocked_ip(client):
         )
         assert HS.CREATED == response.status_code
 
-    response = client.get('/v1/ip_security/blocked_ips/json')
+    response = client.get('/v1/ip_security/reported_ips/json')
     assert len(response.json) == 3
 
-    response = client.get('/v1/ip_security/blocked_ips/xml')
+    response = client.get('/v1/ip_security/reported_ips/xml')
     root = ET.fromstring(response.data)
     assert len(root.findall('result')) == 3
 
-    response = client.get('/v1/ip_security/blocked_ips/json', query_string={'abuse_categories': '3'})
+    response = client.get('/v1/ip_security/reported_ips/json', query_string={'abuse_categories': '3'})
     assert len(response.json) == 1
