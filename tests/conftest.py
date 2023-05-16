@@ -1,12 +1,14 @@
 import os
 import tempfile
+
 import pytest
+
 from ip_app import create_app
 from ip_app.model import get_db, init_db
 
-
 with open(os.path.join(os.path.dirname(__file__), 'fill_values.sql'), 'rb') as f:
     _data_sql = f.read().decode('utf8')
+
 
 @pytest.fixture
 def app():

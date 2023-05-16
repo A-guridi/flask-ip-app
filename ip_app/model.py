@@ -23,6 +23,7 @@ def close_db(e=None):
     if db is not None:
         db.close()
 
+
 def init_db():
     # initializes the current db, running a script to create 3 new tables
     db = get_db()
@@ -43,4 +44,3 @@ def init_app(app):
     # function to start the db from the app constructor, deleting previous ones
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
-    

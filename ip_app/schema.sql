@@ -9,20 +9,41 @@ CREATE TABLE users (
   apikey TEXT NOT NULL
 );
 
+-- geo_location info of the ips
+CREATE TABLE ip_geo_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ipAddress TEXT,
+    country TEXT,
+    region TEXT,
+    city TEXT,
+    lat REAL,
+    lng REAL,
+    postalCode TEXT,
+    timezone TEXT,
+    domain1 TEXT,
+    domain2 TEXT,
+    asn INTEGER,
+    name TEXT,
+    route TEXT,
+    domain TEXT,
+    isp TEXT
+);
+
 -- list of blocked ips and the user who blocked them
 CREATE TABLE blocked_ips (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip_id INTEGER PRIMARY KEY,
   ip_address TEXT UNIQUE NOT NULL,
   author_id INTEGER NOT NULL,
   uploaded TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (author_id) REFERENCES user (user_id)
+  FOREIGN KEY (ip_id) REFERENCES ip_geo_data(id),
+  FOREIGN KEY (author_id) REFERENCES users(user_id)
 );
 
 -- list of reasons why an ip could be blocked
 CREATE TABLE blocked_reasons(
-  reason_id INTEGER PRIMARY KEY,
+  ip_id INTEGER PRIMARY KEY,
   PortScan BOOLEAN DEFAULT FALSE,
   Hacking BOOLEAN DEFAULT FALSE,
   SqlInjection BOOLEAN DEFAULT FALSE,
-  FOREIGN KEY (reason_id) REFERENCES blocked_ips (id)
+  FOREIGN KEY (ip_id) REFERENCES blocked_ips(block_id)
 );

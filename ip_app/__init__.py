@@ -1,7 +1,9 @@
 import os
+
 from flask import Flask
-from ip_app import model
+
 from ip_app import ip_services
+from ip_app import model
 
 
 def create_app(test_config=None):
@@ -15,12 +17,12 @@ def create_app(test_config=None):
         A flask app with a database and 3 API endpoints defined in the blueprint
     """
     app = Flask(__name__, instance_relative_config=True)
-    
+
     if test_config is None:
         from ip_app.config import ProductionConfig
         # load the instance config, if it exists, when not testing
         app.config.from_object(ProductionConfig)
-        app.config['DATABASE'] = os.path.join(app.instance_path, app.config['DATABASE_NAME'] )
+        app.config['DATABASE'] = os.path.join(app.instance_path, app.config['DATABASE_NAME'])
     else:
         # load the test config if passed in
         app.config.from_mapping(test_config)
@@ -35,12 +37,11 @@ def create_app(test_config=None):
     @app.route('/')
     def index():
         return 'Hi, welcome to the IP services app'
-    
+
     # initialize the db object
     model.init_app(app)
 
     # add the blueprint with ip APIs
     app.register_blueprint(ip_services.bp)
-    
 
     return app

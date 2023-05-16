@@ -1,6 +1,7 @@
 import sqlite3
 
 import pytest
+
 from ip_app.model import get_db
 
 
