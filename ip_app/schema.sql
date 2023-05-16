@@ -33,7 +33,6 @@ CREATE TABLE ip_geo_data (
 -- list of blocked ips and the user who blocked them
 CREATE TABLE blocked_ips (
   ip_id INTEGER PRIMARY KEY,
-  ip_address TEXT UNIQUE NOT NULL,
   author_id INTEGER NOT NULL,
   uploaded TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (ip_id) REFERENCES ip_geo_data(id),
@@ -46,5 +45,24 @@ CREATE TABLE blocked_reasons(
   PortScan BOOLEAN DEFAULT FALSE,
   Hacking BOOLEAN DEFAULT FALSE,
   SqlInjection BOOLEAN DEFAULT FALSE,
-  FOREIGN KEY (ip_id) REFERENCES blocked_ips(block_id)
+  FOREIGN KEY (ip_id) REFERENCES blocked_ips(ip_id)
+);
+
+INSERT INTO ip_geo_data(ipAddress, country, region, city, lat, lng, postalCode, timezone, domain1, domain2, asn, name, route, domain, isp)
+VALUES (
+    '8.8.8.8',
+    'US',
+    'California',
+    'Mountain View',
+    37.40599,
+    -122.078514,
+    '94043',
+    '-07:00',
+    'dns1.google.com',
+    'dns2.google.com',
+    15169,
+    'Google LLC',
+    '8.8.8.0/24',
+    'https://about.google/intl/en/',
+    'Google LLC'
 );

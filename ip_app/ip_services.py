@@ -145,7 +145,7 @@ def get_ip_location(ip_address: str):
         except SqlError as e:
             flash(f"SQL error occurred {e}")
             abort(HS.INTERNAL_SERVER_ERROR)
-            
+
         else:
             res_data = build_geo_ip_response(query=data[0])
             return res_data
@@ -154,7 +154,7 @@ def get_ip_location(ip_address: str):
 @bp.route('/report_ip', methods=['POST'])
 @require_api_key  # decorator to require a valid registered API-key to call the method
 def report_ip():
-    """"
+    """
     API for reporting an IP Address for malicious behaviour, uploading it to the DB. If the IP Address was already uploaded
     before, the same API can be used to update the reasons why the IP was reported
     Args:
@@ -201,10 +201,10 @@ def report_ip():
             ip_address_id = ip_address_id[0][0]
         # first we insert the new registered IP in the database.
         # In case the ip has already been added we only update the time
-        db.execute('INSERT INTO blocked_ips(ip_id, ip_address, author_id)'
-                   ' VALUES (?, ?, (SELECT user_id FROM users WHERE apikey=?))'
-                   ' ON CONFLICT(ip_address) DO UPDATE SET uploaded=?',
-                   (ip_address_id, ip_address, api_key, datetime.now()))
+        db.execute('INSERT INTO blocked_ips(ip_id, author_id)'
+                   ' VALUES (?, (SELECT user_id FROM users WHERE apikey=?))'
+                   ' ON CONFLICT(ip_id) DO UPDATE SET uploaded=?',
+                   (ip_address_id, api_key, datetime.now()))
         # then we insert the reasons why it is blocked in another db.
         # In case it was already added, we just update the reasons why it was blocked
         db.execute('INSERT INTO blocked_reasons(ip_id, PortScan, Hacking, SqlInjection)'
@@ -251,23 +251,26 @@ def get_reported_ips(return_format:str):
 
         # if the cateogires are passed as args, we read them and filter our query based on that
         abuse_categories = request.args.get("abuse_categories", type=str)
+
         if abuse_categories is not None:
             abuse_categories = [int(s) for s in abuse_categories]
-            if not set(abuse_categories).issubset(set([1, 2, 3])):
+            if not set(abuse_categories).issubset({1, 2, 3}):
                 raise ValueError(f"Error, only 3 types of abuse categories supported, but got {abuse_categories}")
 
             port_scan = 1 in abuse_categories
             hacking = 2 in abuse_categories
             sql_injection = 3 in abuse_categories
-            results = db.execute('SELECT p.ip_address, p.uploaded, b.PortScan, b.Hacking, b.SqlInjection '
-                                 'FROM blocked_ips p JOIN blocked_reasons b ON p.ip_id=b.ip_id '
-                                 'WHERE b.PortScan=? OR b.Hacking=? OR b.SqlInjection=?',
+            results = db.execute('SELECT g.ipAddress, p.uploaded, b.PortScan, b.Hacking, b.SqlInjection '
+                                 'FROM blocked_ips p JOIN blocked_reasons b ON p.ip_id=b.ip_id JOIN ip_geo_data g '
+                                 'ON g.id=b.ip_id WHERE b.PortScan=? OR b.Hacking=? OR b.SqlInjection=?',
                                  (port_scan, hacking, sql_injection)).fetchall()
 
         else:
             # if not, we run a query on all the parameters
-            results = db.execute('SELECT p.ip_address, p.uploaded, b.PortScan, b.Hacking, b.SqlInjection '
-                                 'FROM blocked_ips p JOIN blocked_reasons b ON p.ip_id=b.ip_id').fetchall()
+            results = db.execute('SELECT g.ipAddress, p.uploaded, b.PortScan, b.Hacking, b.SqlInjection '
+                                 'FROM blocked_ips p JOIN blocked_reasons b ON p.ip_id=b.ip_id JOIN ip_geo_data g '
+                                 'ON g.id=b.ip_id').fetchall()
+
 
     except (ValueError, requests.exceptions.RequestException) as e:
         flash(str(e))
@@ -277,42 +280,43 @@ def get_reported_ips(return_format:str):
         flash(f"Internal DB error {e}")
         abort(HS.INTERNAL_SERVER_ERROR)
 
-    # create the data in json format
-    if return_format == 'json':
-        response = []
-        for query_result in results:
-            reasons_blocked = []
-            # build the list depending on the different non-excluyent reasons
-            if query_result[2]:
-                reasons_blocked.append(1)
-            if query_result[3]:
-                reasons_blocked.append(2)
-            if query_result[4]:
-                reasons_blocked.append(3)
-
-            response.append({
-                'ip_address': query_result[0],
-                'time_uploaed': query_result[1],
-                'reasons_blocked': reasons_blocked
-            })
-
-        return jsonify(response)
-
-    # create the data in XML format
     else:
-        root = ET.Element('response')
-        for query_result in results:
-            result = ET.SubElement(root, 'result')
-            ip_address = ET.SubElement(result, 'ip_address')
-            ip_address.text = str(query_result[0])
-            time_uploaded = ET.SubElement(result, 'time_uploaded')
-            time_uploaded.text = str(query_result[1])
-            reasons_blocked = ET.SubElement(result, 'reasons_blocked')
-            if query_result[2]:
-                ET.SubElement(reasons_blocked, 'reason1')
-            if query_result[3]:
-                ET.SubElement(reasons_blocked, 'reason2')
-            if query_result[4]:
-                ET.SubElement(reasons_blocked, 'reason3')
+        # create the data in json format
+        if return_format == 'json':
+            response = []
+            for query_result in results:
+                reasons_blocked = []
+                # build the list depending on the different non-excluyent reasons
+                if query_result[2]:
+                    reasons_blocked.append(1)
+                if query_result[3]:
+                    reasons_blocked.append(2)
+                if query_result[4]:
+                    reasons_blocked.append(3)
 
-        return current_app.response_class(ET.tostring(root).decode('utf-8'), mimetype='application/xml')
+                response.append({
+                    'ip_address': query_result[0],
+                    'time_uploaed': query_result[1],
+                    'reasons_blocked': reasons_blocked
+                })
+
+            return jsonify(response)
+
+        # create the data in XML format
+        else:
+            root = ET.Element('response')
+            for query_result in results:
+                result = ET.SubElement(root, 'result')
+                ip_address = ET.SubElement(result, 'ip_address')
+                ip_address.text = str(query_result[0])
+                time_uploaded = ET.SubElement(result, 'time_uploaded')
+                time_uploaded.text = str(query_result[1])
+                reasons_blocked = ET.SubElement(result, 'reasons_blocked')
+                if query_result[2]:
+                    ET.SubElement(reasons_blocked, 'reason1')
+                if query_result[3]:
+                    ET.SubElement(reasons_blocked, 'reason2')
+                if query_result[4]:
+                    ET.SubElement(reasons_blocked, 'reason3')
+
+            return current_app.response_class(ET.tostring(root).decode('utf-8'), mimetype='application/xml')
