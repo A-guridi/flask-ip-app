@@ -1,5 +1,5 @@
 # flask-ip-app
-Flask app repository for the Maltego interview
+Flask app repository for basic IP Address handling
 
 The app's main functionality is to provide some security services for IP addresses. These are described in 3 APIS:
 
